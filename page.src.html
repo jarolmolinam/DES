@@ -1,0 +1,625 @@
+<title>Laboratorio DES de peticiones</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,600;112,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Banco de pruebas en una columna: el diagrama de bloques arriba sobre papel cuadriculado;
+   debajo, dos paneles (configurar bloque | eventos del motor) y la tabla de validación. */
+:root {
+  --bg: #E8ECF0; --surface: #F8FAFB; --sunken: #DDE3E9; --ink: #131C25; --muted: #536271;
+  --line: #BFC9D3; --grid: #D6DDE4;
+  --accent: #1B5BD0; --on-accent: #FFFFFF; --queue: #B46A00; --ok: #17794B; --bad: #BD3225;
+  --font-display: 'Archivo', 'Arial Narrow', Arial, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E141A; --surface: #161E26; --sunken: #1E2832; --ink: #E2E9EF; --muted: #8B9BA9;
+    --line: #33414E; --grid: #1C252E;
+    --accent: #72A8FF; --on-accent: #0B1622; --queue: #EDAE45; --ok: #4FC48C; --bad: #FF7F70;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E141A; --surface: #161E26; --sunken: #1E2832; --ink: #E2E9EF; --muted: #8B9BA9;
+  --line: #33414E; --grid: #1C252E;
+  --accent: #72A8FF; --on-accent: #0B1622; --queue: #EDAE45; --ok: #4FC48C; --bad: #FF7F70;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: clamp(16px, 3vw, 32px); padding-block: 28px 56px; display: flex; flex-direction: column; gap: 20px; }
+
+h1, h2 { font-family: var(--font-display); font-stretch: 112%; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.1rem); font-weight: 700; line-height: 1.15; letter-spacing: -0.01em; }
+h2 { font-size: 1rem; font-weight: 600; }
+p { margin: 0; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lede { color: var(--muted); max-width: 62ch; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.top { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: flex-end; justify-content: space-between; }
+.top > div:first-child { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 380px; }
+.clock { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
+.clock output { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2rem); font-weight: 500; line-height: 1.1; white-space: nowrap; }
+.clock small { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); }
+.clock .eyebrow { font-size: 0.6875rem; }
+@media (max-width: 560px) { .clock { align-items: flex-start; } }
+
+/* Controles */
+.controls { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: flex-end; }
+.btn { font: 500 0.875rem var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 8px 14px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--ink); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; min-width: 7.5rem; }
+.btn.primary:hover { filter: brightness(1.08); }
+.field { display: flex; flex-direction: column; gap: 3px; font-size: 0.75rem; color: var(--muted); }
+.field input, .field select { font: 400 0.875rem var(--font-mono); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 7px 8px; min-width: 0; }
+.field input[type=number] { width: 7.5rem; }
+.spacer { flex: 1 1 0; }
+:is(.btn, .field input, .field select, .tab, canvas):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#status { font-size: 0.8125rem; color: var(--bad); flex-basis: 100%; }
+
+/* Diagrama */
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+.scroll { overflow-x: auto; }
+#pipe { display: block; }
+.conserv { border-top: 1px solid var(--line); padding: 9px 14px; font-size: 0.8125rem; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.pill { font: 600 0.6875rem var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.pill.ok { color: var(--ok); } .pill.bad { color: var(--bad); } .pill.warn { color: var(--queue); }
+
+/* Paneles */
+.cols { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+.panel { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.panel > header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; border-bottom: 2px solid var(--ink); padding-bottom: 6px; }
+.panel > header span { font-size: 0.8125rem; color: var(--muted); }
+.note { font-size: 0.8125rem; color: var(--muted); max-width: 78ch; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tab { font: 500 0.8125rem var(--font-body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 6px 11px; cursor: pointer; }
+.tab[aria-selected="true"] { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 12px; align-items: end; }
+.form-grid .field input, .form-grid .field select { width: 100%; }
+.check { display: flex; gap: 7px; align-items: center; font-size: 0.8125rem; color: var(--ink); padding-bottom: 8px; }
+.err { color: var(--bad); font-size: 0.8125rem; }
+.err:empty { display: none; }
+#pdf { display: block; width: 100%; height: 150px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.facts { display: flex; flex-wrap: wrap; gap: 12px 30px; margin: 0; }
+.facts div { display: flex; flex-direction: column; gap: 1px; }
+.facts dt { font-size: 0.6875rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.facts dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.9375rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Tablas */
+.tscroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
+th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 500; color: var(--muted); font-size: 0.75rem; }
+td { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child, th.l, td.l { text-align: left; }
+td.name { font-family: var(--font-body); font-weight: 500; }
+tr.next td { background: var(--sunken); }
+.dev { color: var(--muted); font-size: 0.6875rem; margin-left: 6px; }
+.th-group { text-align: center; border-bottom-color: var(--ink); color: var(--ink); }
+.muted { color: var(--muted); } .bad { color: var(--bad); }
+.system { display: flex; flex-wrap: wrap; gap: 8px 32px; font-size: 0.875rem; }
+.system b { font-family: var(--font-mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* Traza */
+#trace { list-style: none; margin: 0; padding: 0; height: 248px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+#trace li { display: grid; grid-template-columns: max-content 4.6rem minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 5px 10px; border-bottom: 1px solid var(--line); font-size: 0.8125rem; }
+#trace li:first-child { background: var(--sunken); }
+#trace .t { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--muted); min-width: 4.6rem; white-space: nowrap; }
+.tag { font: 600 0.6875rem var(--font-mono); letter-spacing: 0.03em; text-transform: uppercase; }
+.tag.A { color: var(--accent); } .tag.F { color: var(--ok); } .tag.R { color: var(--bad); }
+@media (max-width: 480px) { #trace li { grid-template-columns: max-content minmax(0, 1fr); } #trace .tag { display: none; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Modelos y Simulación · Eventos discretos</p>
+      <h1>Laboratorio DES de peticiones</h1>
+      <p class="lede">Una petición web cruza el gateway, la verificación y el servicio. Elige la distribución de cada bloque y sigue al motor evento por evento.</p>
+    </div>
+    <div class="clock">
+      <span class="eyebrow">Reloj de simulación</span>
+      <output id="clock">0.0 ms</output>
+      <small id="evcount">0 eventos procesados</small>
+    </div>
+  </header>
+
+  <section class="controls" aria-label="Controles de la simulación">
+    <button class="btn primary" id="btn-play" type="button">Reproducir</button>
+    <button class="btn" id="btn-step" type="button">Paso (1 evento)</button>
+    <button class="btn" id="btn-ff" type="button">Adelantar 10 000 llegadas</button>
+    <button class="btn" id="btn-reset" type="button">Reiniciar</button>
+    <span class="spacer"></span>
+    <label class="field">Velocidad (1× = tiempo real)
+      <select id="speed">
+        <option value="0.02">0.02×</option><option value="0.05">0.05×</option><option value="0.1" selected>0.1×</option>
+        <option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1">1×</option>
+        <option value="5">5×</option><option value="25">25×</option><option value="100">100×</option>
+      </select>
+    </label>
+    <label class="field">Semilla
+      <input id="seed" type="number" min="0" max="4294967295" step="1" value="2026">
+    </label>
+    <p id="status" role="status" hidden></p>
+  </section>
+
+  <section class="diagram" aria-label="Diagrama de bloques">
+    <div class="scroll"><canvas id="pipe" tabindex="0" role="img" aria-label="Diagrama de bloques: Llegadas, Gateway, Verificación, Servicio y Respuesta. Las pestañas de Configurar bloque seleccionan cada bloque."></canvas></div>
+    <p class="conserv" id="conserv"></p>
+  </section>
+
+  <div class="cols">
+    <section class="panel" aria-labelledby="h-config">
+      <header><h2 id="h-config">Configurar bloque</h2><span>Cada cambio reinicia la corrida con la misma semilla</span></header>
+      <div class="tabs" id="tabs" role="tablist" aria-label="Bloque"></div>
+      <div class="form-grid" id="form"></div>
+      <p class="err" id="form-err" role="alert"></p>
+      <canvas id="pdf" role="img" aria-label="Densidad de la distribución seleccionada"></canvas>
+      <dl class="facts" id="facts"></dl>
+    </section>
+
+    <section class="panel" aria-labelledby="h-fel">
+      <header><h2 id="h-fel">Lista de eventos futuros</h2><span>El motor siempre toma el de menor hora</span></header>
+      <div class="tscroll"><table id="fel"></table></div>
+      <header><h2>Traza</h2><span>Últimos eventos procesados, el más reciente arriba</span></header>
+      <ol id="trace"></ol>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="h-val">
+    <header><h2 id="h-val">Simulado contra teórico</h2><span>Promedios desde t = 0, sin descartar calentamiento</span></header>
+    <div class="tscroll"><table id="metrics"></table></div>
+    <p class="system" id="system"></p>
+    <p class="note">La columna de teoría aparece cuando a la estación le llega un proceso de Poisson y su cola no tiene límite: M/M/c con la fórmula de Erlang C, o M/G/1 con Pollaczek-Khinchine. Después de una estación con servicio no exponencial o con rechazos, la entrada deja de ser Poisson y la teoría desaparece aguas abajo.</p>
+  </section>
+</div>
+
+<script>
+/*__ENGINE__*/
+</script>
+<script>
+'use strict';
+(function () {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fmtInt = n => Math.round(n).toLocaleString('en-US').replace(/,/g, ' ');
+  const fmtT = t => t.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).replace(/,/g, ' ');
+  const fix = (x, d) => (x == null || Number.isNaN(x) ? '—' : x.toFixed(d));
+
+  /* ---------- Modelo ---------- */
+  const model = {
+    arrivals: { type: 'exp', p: { mean: 125 } },
+    stations: [
+      { name: 'Gateway', type: 'exp', p: { mean: 20 }, servers: 1, cap: Infinity },
+      { name: 'Verificación', type: 'exp', p: { mean: 90 }, servers: 1, cap: Infinity },
+      { name: 'Servicio', type: 'exp', p: { mean: 200 }, servers: 2, cap: Infinity },
+    ],
+  };
+  const MAX_IN_SYSTEM = 200000;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let seed = 2026, sim, vclock = 0, playing = false, speed = 0.1, selected = 1;
+  let trace = [], lastA = 0, th = theory(model);
+  let particles = [], flying = new Map(), flyEnd = new Map();
+  let domDirty = true, lastDom = 0;
+
+  function reset(preroll) {
+    sim = new Sim(model, seed);
+    th = theory(model);
+    vclock = 0; trace = []; lastA = 0;
+    particles = []; flying.clear(); flyEnd.clear();
+    setStatus('');
+    if (preroll) { for (let i = 0; i < preroll; i++) handle(sim.step(), false); vclock = sim.clock; }
+    domDirty = true;
+  }
+
+  function handle(log, animate) {
+    trace.unshift(log);
+    if (trace.length > 60) trace.pop();
+    if (log.type === 'A') lastA = log.t;
+    if (animate && speed <= 0.5 && !reducedMotion) for (const mv of log.moves) spawn(mv);
+  }
+
+  function setStatus(msg) { const el = $('status'); el.textContent = msg; el.hidden = !msg; }
+  function setPlaying(v) { playing = v; $('btn-play').textContent = v ? 'Pausar' : 'Reproducir'; }
+
+  /* ---------- Lienzo del diagrama ---------- */
+  const cv = $('pipe'), ctx = cv.getContext('2d');
+  const H = 270, BY = 46, BH = 150, MID = BY + BH / 2;
+  let W = 980, dpr = 1, blocks = [], C = {}, frameN = 0;
+
+  function readColors() {
+    const cs = getComputedStyle(document.documentElement);
+    for (const k of ['bg', 'surface', 'sunken', 'ink', 'muted', 'line', 'grid', 'accent', 'on-accent', 'queue', 'ok', 'bad']) C[k] = cs.getPropertyValue('--' + k).trim();
+    C.display = cs.getPropertyValue('--font-display').trim();
+    C.mono = cs.getPropertyValue('--font-mono').trim();
+    C.body = cs.getPropertyValue('--font-body').trim();
+  }
+
+  function layout() {
+    const cw = cv.parentElement.clientWidth || 980;
+    W = Math.max(980, cw); dpr = window.devicePixelRatio || 1;
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const n = model.stations.length, sw = 180, ew = 112, m = 18;
+    const gap = (W - 2 * m - 2 * ew - n * sw) / (n + 1);
+    let x = m; blocks = [];
+    blocks.push({ kind: 'src', x, y: MID - 50, w: ew, h: 100 }); x += ew + gap;
+    for (let i = 0; i < n; i++) { blocks.push({ kind: 'st', i, x, y: BY, w: sw, h: BH }); x += sw + gap; }
+    blocks.push({ kind: 'sink', x, y: MID - 50, w: ew, h: 100 });
+  }
+
+  function spawn(mv) {
+    if (particles.length > 80) return;
+    const a = blocks[mv.from + 1], b = blocks[mv.to + 1];
+    const now = performance.now();
+    const start = Math.max(now, flyEnd.get(mv.id) || 0);
+    let pts, dur, color, hide = true;
+    if (mv.outcome === 'rechazo') {
+      pts = [[a.x + a.w, MID], [b.x - 16, MID], [b.x - 16, b.y + b.h + 30]]; dur = 460; color = 'bad'; hide = false;
+    } else { pts = [[a.x + a.w, MID], [b.x, MID]]; dur = 240; color = 'accent'; }
+    particles.push({ id: mv.id, pts, t0: start, dur, color, hide });
+    flyEnd.set(mv.id, start + dur);
+    if (hide) flying.set(mv.id, (flying.get(mv.id) || 0) + 1);
+  }
+
+  function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+  function text(s, x, y, font, color, align) { ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.fillText(s, x, y); }
+
+  function drawBlockFrame(b, title, right, sel) {
+    rr(b.x, b.y, b.w, b.h, 3); ctx.fillStyle = C.surface; ctx.fill();
+    ctx.save(); rr(b.x, b.y, b.w, b.h, 3); ctx.clip();
+    ctx.fillStyle = C.sunken; ctx.fillRect(b.x, b.y, b.w, 26);
+    ctx.restore();
+    ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(b.x, b.y + 26.5); ctx.lineTo(b.x + b.w, b.y + 26.5); ctx.stroke();
+    rr(b.x, b.y, b.w, b.h, 3); ctx.strokeStyle = sel ? C.accent : C.ink; ctx.lineWidth = sel ? 2.5 : 1.25; ctx.stroke();
+    text(title, b.x + 10, b.y + 18, `600 13px ${C.display}`, C.ink);
+    if (right) text(right, b.x + b.w - 9, b.y + 17.5, `500 11px ${C.mono}`, C.muted, 'right');
+  }
+
+  function draw(now) {
+    if (frameN++ % 30 === 0) readColors();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.textBaseline = 'alphabetic';
+
+    // papel cuadriculado
+    ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 0.5; x < W; x += 20) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = 0.5; y < H; y += 20) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+
+    // leyenda
+    let lx = 18;
+    ctx.fillStyle = C.queue; ctx.fillRect(lx, 15, 9, 9); text('en cola', lx + 15, 23.5, `400 12px ${C.body}`, C.muted); lx += 78;
+    ctx.fillStyle = C.accent; ctx.beginPath(); ctx.arc(lx + 5, 19.5, 5, 0, 7); ctx.fill(); text('en servicio', lx + 16, 23.5, `400 12px ${C.body}`, C.muted); lx += 100;
+    ctx.fillStyle = C.bad; ctx.beginPath(); ctx.arc(lx + 5, 19.5, 4, 0, 7); ctx.fill(); text('rechazada (503)', lx + 15, 23.5, `400 12px ${C.body}`, C.muted);
+
+    // conectores
+    ctx.strokeStyle = C.ink; ctx.fillStyle = C.ink; ctx.lineWidth = 1.25;
+    for (let k = 0; k < blocks.length - 1; k++) {
+      const a = blocks[k], b = blocks[k + 1];
+      ctx.beginPath(); ctx.moveTo(a.x + a.w, MID); ctx.lineTo(b.x - 7, MID); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(b.x, MID); ctx.lineTo(b.x - 8, MID - 4.5); ctx.lineTo(b.x - 8, MID + 4.5); ctx.closePath(); ctx.fill();
+    }
+
+    const st = sim.stats(vclock);
+
+    // fuente
+    {
+      const b = blocks[0], a = model.arrivals;
+      drawBlockFrame(b, 'Llegadas', '', selected === 0);
+      text('λ = ' + fmtNum(1000 * th.lam) + ' /s', b.x + b.w / 2, b.y + 56, `500 14px ${C.mono}`, C.ink, 'center');
+      const next = nextArrivalT(), frac = next > lastA ? Math.min(1, Math.max(0, (vclock - lastA) / (next - lastA))) : 0;
+      ctx.fillStyle = C.sunken; ctx.fillRect(b.x + 12, b.y + 70, b.w - 24, 5);
+      ctx.fillStyle = C.accent; ctx.fillRect(b.x + 12, b.y + 70, (b.w - 24) * frac, 5);
+      text('próxima llegada', b.x + b.w / 2, b.y + 90, `400 10.5px ${C.body}`, C.muted, 'center');
+      text(DIST[a.type].short(a.p), b.x + b.w / 2, b.y + b.h + 18, `500 11px ${C.mono}`, C.ink, 'center');
+      text('entre llegadas', b.x + b.w / 2, b.y + b.h + 33, `400 11px ${C.body}`, C.muted, 'center');
+    }
+
+    // estaciones
+    for (const b of blocks) {
+      if (b.kind !== 'st') continue;
+      const s = sim.st[b.i], cfg = s.cfg, c = cfg.servers;
+      drawBlockFrame(b, cfg.name, th.stations[b.i].kendall, selected === b.i + 1);
+      // servidores
+      const cols = c > 4 ? 2 : 1, rows = Math.ceil(c / cols), r = 10, pitch = 26;
+      const xr = b.x + b.w - 14, bodyTop = b.y + 26, bodyH = b.h - 26;
+      const y0 = bodyTop + bodyH / 2 - (rows - 1) * pitch / 2;
+      for (let j = 0; j < c; j++) {
+        const col = Math.floor(j / rows), row = j % rows;
+        const cx = xr - r - col * pitch, cy = y0 + row * pitch;
+        const slot = s.servers[j];
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fillStyle = C.bg; ctx.fill(); ctx.strokeStyle = C.line; ctx.lineWidth = 1.5; ctx.stroke();
+        if (slot && !flying.has(slot.ent.id)) {
+          const f = slot.t1 > slot.t0 ? Math.min(1, Math.max(0, (vclock - slot.t0) / (slot.t1 - slot.t0))) : 1;
+          ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * f); ctx.strokeStyle = C.accent; ctx.lineWidth = 2.5; ctx.stroke();
+          ctx.beginPath(); ctx.arc(cx, cy, r - 4.5, 0, 7); ctx.fillStyle = C.accent; ctx.fill();
+        }
+      }
+      // cola: la cabeza queda junto a los servidores
+      const sLeft = xr - (cols - 1) * pitch - 2 * r, qRight = sLeft - 12;
+      const colsQ = Math.floor((qRight - (b.x + 12)) / 12), rowsQ = 5, shown = colsQ * rowsQ;
+      const capShown = Math.min(shown, cfg.cap);
+      const slots = Math.max(Math.min(s.queue.length, shown), Number.isFinite(cfg.cap) ? capShown : 0);
+      for (let n = 0; n < slots; n++) {
+        const col = n % colsQ, row = Math.floor(n / colsQ);
+        const x = qRight - 9 - col * 12, y = MID - 4.5 + row * 12;
+        const ent = s.queue[n];
+        if (ent && !flying.has(ent.id)) { ctx.fillStyle = C.queue; ctx.fillRect(x, y, 9, 9); }
+        else if (Number.isFinite(cfg.cap)) { ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, 8, 8); }
+      }
+      text('en cola ' + fmtInt(s.queue.length), b.x + 11, b.y + 46, `500 11px ${C.mono}`, s.queue.length ? C.queue : C.muted);
+      // pie del bloque
+      text(DIST[cfg.type].short(cfg.p), b.x + b.w / 2, b.y + b.h + 18, `500 11px ${C.mono}`, C.ink, 'center');
+      text(`c = ${c} · cola ${Number.isFinite(cfg.cap) ? cfg.cap : '∞'}`, b.x + b.w / 2, b.y + b.h + 33, `400 11px ${C.body}`, C.muted, 'center');
+      // desagüe de rechazos
+      if (Number.isFinite(cfg.cap)) {
+        const dx = b.x - 16, dy = b.y + b.h + 30;
+        ctx.strokeStyle = C.bad; ctx.fillStyle = C.bad; ctx.lineWidth = 1.25; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(dx, MID + 2); ctx.lineTo(dx, dy - 6); ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(dx, dy); ctx.lineTo(dx - 4, dy - 7); ctx.lineTo(dx + 4, dy - 7); ctx.closePath(); ctx.fill();
+        text('503 · ' + fmtInt(s.rejected), dx, dy + 15, `500 11px ${C.mono}`, C.bad, 'center');
+      }
+    }
+
+    // sumidero
+    {
+      const b = blocks[blocks.length - 1];
+      drawBlockFrame(b, 'Respuesta', '', false);
+      text(fmtInt(st.completed), b.x + b.w / 2, b.y + 60, `500 17px ${C.mono}`, C.ink, 'center');
+      text('completadas', b.x + b.w / 2, b.y + 78, `400 10.5px ${C.body}`, C.muted, 'center');
+      text('200 OK', b.x + b.w / 2, b.y + b.h + 18, `500 11px ${C.mono}`, C.ok, 'center');
+      text('W medio ' + (st.completed ? fmtNum(st.W) + ' ms' : '—'), b.x + b.w / 2, b.y + b.h + 33, `400 11px ${C.body}`, C.muted, 'center');
+    }
+
+    // peticiones en tránsito
+    for (let k = particles.length - 1; k >= 0; k--) {
+      const p = particles[k], u = (now - p.t0) / p.dur;
+      if (u >= 1) {
+        particles.splice(k, 1);
+        if (p.hide) { const n = (flying.get(p.id) || 1) - 1; if (n <= 0) flying.delete(p.id); else flying.set(p.id, n); }
+        if ((flyEnd.get(p.id) || 0) <= now) flyEnd.delete(p.id);
+        continue;
+      }
+      if (u < 0) continue;
+      const e = u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);
+      let total = 0; const seg = [];
+      for (let i = 1; i < p.pts.length; i++) { const d = Math.hypot(p.pts[i][0] - p.pts[i - 1][0], p.pts[i][1] - p.pts[i - 1][1]); seg.push(d); total += d; }
+      let d = e * total, i = 0;
+      while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
+      const f = seg[i] ? d / seg[i] : 0;
+      const x = p.pts[i][0] + (p.pts[i + 1][0] - p.pts[i][0]) * f, y = p.pts[i][1] + (p.pts[i + 1][1] - p.pts[i][1]) * f;
+      ctx.beginPath(); ctx.arc(x, y, 5.5, 0, 7); ctx.fillStyle = C[p.color]; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = C.surface; ctx.stroke();
+    }
+  }
+
+  function nextArrivalT() { for (const e of sim.heap) if (e.type === 'A') return e.t; return Infinity; }
+
+  function blockAt(evt) {
+    const r = cv.getBoundingClientRect(), x = evt.clientX - r.left, y = evt.clientY - r.top;
+    for (let k = 0; k < blocks.length - 1; k++) { const b = blocks[k]; if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return k; }
+    return -1;
+  }
+  cv.addEventListener('click', e => { const k = blockAt(e); if (k >= 0) select(k); });
+  cv.addEventListener('mousemove', e => { cv.style.cursor = blockAt(e) >= 0 ? 'pointer' : 'default'; });
+
+  /* ---------- Panel de configuración ---------- */
+  const names = () => ['Llegadas', ...model.stations.map(s => s.name)];
+  const blockOf = k => (k === 0 ? model.arrivals : model.stations[k - 1]);
+
+  function renderTabs() {
+    $('tabs').innerHTML = names().map((n, k) => `<button class="tab" type="button" role="tab" id="tab-${k}" aria-selected="${k === selected}" data-k="${k}">${esc(n)}</button>`).join('');
+  }
+  $('tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) select(+b.dataset.k); });
+
+  function select(k) { selected = k; renderTabs(); renderForm(); }
+
+  function renderForm() {
+    const blk = blockOf(selected), isSt = selected > 0;
+    let h = `<label class="field">${isSt ? 'Tiempo de servicio' : 'Tiempo entre llegadas'}
+      <select id="dist-type">${Object.entries(DIST).map(([k, d]) => `<option value="${k}"${k === blk.type ? ' selected' : ''}>${d.label}</option>`).join('')}</select></label>`;
+    for (const prm of DIST[blk.type].params)
+      h += `<label class="field">${prm.label}<input type="number" id="p-${prm.key}" data-p="${prm.key}" step="${prm.step}" min="0" value="${blk.p[prm.key]}"></label>`;
+    if (isSt) {
+      const inf = blk.cap === Infinity;
+      h += `<label class="field">Servidores (c)<input type="number" id="f-servers" min="1" max="8" step="1" value="${blk.servers}"></label>`;
+      h += `<label class="field">Capacidad de la cola<input type="number" id="f-cap" min="0" max="999" step="1" value="${inf ? 10 : blk.cap}"${inf ? ' disabled' : ''}></label>`;
+      h += `<label class="check"><input type="checkbox" id="f-inf"${inf ? ' checked' : ''}>Cola sin límite</label>`;
+    }
+    $('form').innerHTML = h;
+    $('form-err').textContent = '';
+    renderFacts(); drawPdf();
+  }
+
+  $('form').addEventListener('change', e => {
+    const blk = blockOf(selected), t = e.target;
+    let err = null;
+    if (t.id === 'dist-type') {
+      const m = DIST[blk.type].mean(blk.p);
+      blk.type = t.value; blk.p = DIST[blk.type].fromMean(+m.toFixed(3));
+      apply(); renderForm(); return;
+    }
+    if (t.dataset.p) {
+      const p = Object.assign({}, blk.p);
+      for (const el of $('form').querySelectorAll('[data-p]')) p[el.dataset.p] = el.value === '' ? NaN : +el.value;
+      err = DIST[blk.type].validate(p);
+      if (!err && DIST[blk.type].mean(p) < 0.01) err = 'La media debe ser de al menos 0.01 ms.';
+      if (!err) blk.p = p;
+    } else if (t.id === 'f-servers') {
+      const v = +t.value;
+      if (Number.isInteger(v) && v >= 1 && v <= 8) blk.servers = v; else err = 'Los servidores deben ser un entero entre 1 y 8.';
+    } else if (t.id === 'f-inf' || t.id === 'f-cap') {
+      const inf = $('f-inf').checked, v = +$('f-cap').value;
+      $('f-cap').disabled = inf;
+      if (inf) blk.cap = Infinity;
+      else if (Number.isInteger(v) && v >= 0 && v <= 999) blk.cap = v;
+      else err = 'La capacidad debe ser un entero entre 0 y 999.';
+    }
+    $('form-err').textContent = err || '';
+    if (!err) { apply(); renderFacts(); drawPdf(); }
+  });
+
+  function apply() { reset(0); }
+
+  function renderFacts() {
+    const blk = blockOf(selected), d = DIST[blk.type];
+    const m = d.mean(blk.p), cvv = Math.sqrt(d.variance(blk.p)) / m;
+    let h = `<div><dt>Media</dt><dd>${fmtNum(m)} ms</dd></div><div><dt>Coef. de variación</dt><dd>${fix(cvv, 2)}</dd></div>`;
+    if (selected === 0) h += `<div><dt>Tasa de llegada</dt><dd>λ = ${fmtNum(1000 / m)} /s</dd></div>`;
+    else {
+      const t = th.stations[selected - 1];
+      const cls = t.offered >= 1 ? 'bad' : t.offered >= 0.85 ? 'warn' : 'ok';
+      const lbl = t.offered >= 1 ? 'saturada' : t.offered >= 0.85 ? 'al límite' : 'estable';
+      h += `<div><dt>Tasa por servidor</dt><dd>μ = ${fmtNum(1000 / m)} /s</dd></div>`;
+      h += `<div><dt>Carga ofrecida</dt><dd>ρ = ${fix(t.offered, 3)} <span class="pill ${cls}">${lbl}</span></dd></div>`;
+      h += `<div><dt>Notación de Kendall</dt><dd>${esc(t.kendall)}</dd></div>`;
+    }
+    $('facts').innerHTML = h;
+  }
+
+  function drawPdf() {
+    const c = $('pdf'), g = c.getContext('2d');
+    const w = c.clientWidth || 320, h = 150, r = window.devicePixelRatio || 1;
+    c.width = Math.round(w * r); c.height = Math.round(h * r);
+    readColors();
+    g.setTransform(r, 0, 0, r, 0, 0); g.clearRect(0, 0, w, h);
+    const blk = blockOf(selected), d = DIST[blk.type], p = blk.p;
+    const m = d.mean(p), sd = Math.sqrt(d.variance(p));
+    const xmax = blk.type === 'det' ? 2 * m : blk.type === 'unif' ? p.b * 1.2 : m + 4 * sd;
+    const L = 14, R = 14, T = 16, B = 26, pw = w - L - R, ph = h - T - B;
+    const X = x => L + x / xmax * pw;
+    const N = 240; let ymax = 0; const ys = [];
+    for (let i = 0; i <= N; i++) { const y = d.pdf(p, (i === 0 ? 1e-6 : i) * xmax / N); ys.push(y); if (i > 0 && y > ymax) ymax = y; }
+    if (blk.type === 'exp' || (blk.type === 'erlang' && p.k === 1)) ymax = d.pdf(p, 0);
+    const Y = y => T + ph - Math.min(1, y / (ymax || 1)) * ph;
+    g.strokeStyle = C.line; g.lineWidth = 1; g.beginPath(); g.moveTo(L, T + ph + 0.5); g.lineTo(L + pw, T + ph + 0.5); g.stroke();
+    if (blk.type === 'det') {
+      g.strokeStyle = C.accent; g.lineWidth = 3; g.beginPath(); g.moveTo(X(m), T + ph); g.lineTo(X(m), T + 6); g.stroke();
+    } else {
+      g.beginPath(); g.moveTo(X(0), T + ph);
+      for (let i = 0; i <= N; i++) g.lineTo(X(i * xmax / N), Y(ys[i]));
+      g.lineTo(X(xmax), T + ph); g.closePath();
+      g.globalAlpha = 0.16; g.fillStyle = C.accent; g.fill(); g.globalAlpha = 1;
+      g.beginPath();
+      for (let i = 0; i <= N; i++) { const px = X(i * xmax / N), py = Y(ys[i]); if (i) g.lineTo(px, py); else g.moveTo(px, py); }
+      g.strokeStyle = C.accent; g.lineWidth = 2; g.stroke();
+      g.strokeStyle = C.ink; g.lineWidth = 1; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(X(m) + 0.5, T + ph); g.lineTo(X(m) + 0.5, T); g.stroke(); g.setLineDash([]);
+    }
+    g.font = `400 10.5px ${C.mono}`; g.fillStyle = C.muted; g.textBaseline = 'alphabetic';
+    g.textAlign = 'left'; g.fillText('0', L, h - 8);
+    g.textAlign = 'right'; g.fillText(fmtNum(xmax) + ' ms', L + pw, h - 8);
+    const mx = X(m), lab = 'media ' + fmtNum(m);
+    g.fillStyle = C.ink; g.textAlign = mx > w * 0.72 ? 'right' : mx < w * 0.14 ? 'left' : 'center';
+    g.fillText(lab, Math.max(L + 22, Math.min(mx, L + pw - 50)), h - 8);
+  }
+
+  /* ---------- Reloj, lista de eventos, traza y tabla ---------- */
+  const outcomeText = l => (l.outcome === 'servicio' ? 'entra a servicio' : l.outcome === 'cola' ? `espera en cola (${l.qlen} en cola)` : 'rechazada, cola llena');
+  function describe(l) {
+    const n = model.stations;
+    if (l.type === 'A') return `#${l.id} llega a ${n[0].name}: ${outcomeText(l)}`;
+    let s = `#${l.id} termina en ${n[l.st].name}`;
+    s += l.st + 1 < n.length ? ` → ${n[l.st + 1].name}: ${outcomeText(l)}` : ` → Respuesta, ${fmtNum(l.w)} ms en total`;
+    if (l.pulled) s += `. #${l.pulled} pasa de la cola al servidor`;
+    return s;
+  }
+
+  function renderDom() {
+    const st = sim.stats(vclock);
+    $('clock').textContent = fmtT(vclock) + ' ms';
+    $('evcount').textContent = fmtInt(sim.events) + ' eventos procesados';
+
+    const ok = sim.conserved();
+    $('conserv').innerHTML = `<span>Conservación:</span> <span class="mono">${fmtInt(st.arrivals)} llegadas = ${fmtInt(st.completed)} completadas + ${fmtInt(st.rejected)} rechazadas + ${fmtInt(st.inSystem)} en el sistema</span> <span class="pill ${ok ? 'ok' : 'bad'}">${ok ? 'se cumple' : 'no se cumple'}</span>`;
+
+    const fel = sim.fel();
+    $('fel').innerHTML = '<thead><tr><th>Orden</th><th>Hora (ms)</th><th>Falta (ms)</th><th class="l">Evento</th><th class="l">Petición</th></tr></thead><tbody>' +
+      fel.slice(0, 8).map((e, i) => `<tr class="${i === 0 ? 'next' : ''}"><td>${i + 1}</td><td>${fmtT(e.t)}</td><td>${fmtT(Math.max(0, e.t - vclock))}</td><td class="l name">${e.type === 'A' ? 'Llegada a ' + esc(model.stations[0].name) : 'Fin de servicio en ' + esc(model.stations[e.st].name)}</td><td class="l">#${e.ent.id}</td></tr>`).join('') +
+      (fel.length > 8 ? `<tr><td colspan="5" class="l muted">y ${fel.length - 8} más</td></tr>` : '') + '</tbody>';
+
+    $('trace').innerHTML = trace.map(l => {
+      const rej = l.outcome === 'rechazo';
+      return `<li><span class="t">${fmtT(l.t)}</span><span class="tag ${rej ? 'R' : l.type}">${rej ? 'Rechazo' : l.type === 'A' ? 'Llegada' : 'Fin'}</span><span>${esc(describe(l))}</span></li>`;
+    }).join('') || '<li><span class="t">0.0</span><span class="tag"></span><span class="muted">Aún no se procesa ningún evento. Pulsa Paso o Reproducir.</span></li>';
+
+    const dev = (a, b) => (b > 0 && Number.isFinite(a) ? `<span class="dev">${a >= b ? '+' : '−'}${Math.abs((a - b) / b * 100).toFixed(1)} %</span>` : '');
+    let h = '<thead><tr><th rowspan="2">Estación</th><th rowspan="2" class="l">Modelo</th><th colspan="2" class="th-group">Utilización ρ</th><th colspan="2" class="th-group">Lq, peticiones en cola</th><th colspan="2" class="th-group">Wq, ms en cola</th><th rowspan="2">Atendidas</th><th rowspan="2">Rechazadas</th></tr>' +
+      '<tr><th>simulado</th><th>teoría</th><th>simulado</th><th>teoría</th><th>simulado</th><th>teoría</th></tr></thead><tbody>';
+    st.stations.forEach((s, i) => {
+      const t = th.stations[i];
+      const tc = v => (t.known ? v : t.unstable ? '<span class="bad">inestable</span>' : '<span class="muted">—</span>');
+      h += `<tr><td class="name">${esc(model.stations[i].name)}</td><td class="l">${esc(t.kendall)}</td>` +
+        `<td>${fix(s.util, 3)}${t.known ? dev(s.util, t.rho) : ''}</td><td>${tc(fix(t.rho, 3))}</td>` +
+        `<td>${fix(s.Lq, 3)}${t.known ? dev(s.Lq, t.Lq) : ''}</td><td>${tc(fix(t.Lq, 3))}</td>` +
+        `<td>${fix(s.Wq, 1)}${t.known ? dev(s.Wq, t.Wq) : ''}</td><td>${tc(fix(t.Wq, 1))}</td>` +
+        `<td>${fmtInt(s.served)}</td><td class="${s.rejected ? 'bad' : ''}">${fmtInt(s.rejected)}</td></tr>`;
+    });
+    $('metrics').innerHTML = h + '</tbody>';
+    $('system').innerHTML = `<span>Tiempo total medio W: <b>${st.completed ? fmtNum(st.W) + ' ms' : '—'}</b>${th.W != null ? ` <span class="muted">(teoría ${fmtNum(th.W)} ms)</span>` : ''}</span>` +
+      `<span>Salida: <b>${fix(st.throughput, 2)} pet./s</b> <span class="muted">(entrada λ = ${fmtNum(1000 * th.lam)} pet./s)</span></span>`;
+    domDirty = false;
+  }
+
+  /* ---------- Controles ---------- */
+  function guard() {
+    if (sim.inSystem > MAX_IN_SYSTEM) {
+      setPlaying(false);
+      setStatus('Pausado: hay más de 200 000 peticiones dentro del sistema. Con carga ρ ≥ 1 la cola crece sin límite; baja la tasa de llegada, sube los servidores o limita la cola.');
+      return true;
+    }
+    return false;
+  }
+  $('btn-play').addEventListener('click', () => { if (!playing && guard()) return; setPlaying(!playing); });
+  $('btn-step').addEventListener('click', () => {
+    setPlaying(false);
+    if (guard()) return;
+    handle(sim.step(), true); vclock = sim.clock; renderDom();
+  });
+  $('btn-ff').addEventListener('click', () => {
+    const target = sim.arrivals + 10000;
+    while (sim.arrivals < target && sim.inSystem <= MAX_IN_SYSTEM) handle(sim.step(), false);
+    vclock = sim.clock; guard(); renderDom();
+  });
+  $('btn-reset').addEventListener('click', () => { setPlaying(false); reset(0); renderDom(); });
+  $('speed').addEventListener('change', e => { speed = +e.target.value; });
+  $('seed').addEventListener('change', e => {
+    const v = Math.floor(+e.target.value);
+    if (!(v >= 0 && v <= 4294967295)) { e.target.value = seed; return; }
+    seed = v; reset(0); renderDom();
+  });
+
+  /* ---------- Bucle principal ---------- */
+  let lastTs = 0;
+  function frame(ts) {
+    const dt = Math.min(100, ts - (lastTs || ts)); lastTs = ts;
+    if (playing) {
+      vclock += dt * speed;
+      let n = 0;
+      while (sim.peekTime() <= vclock && n < 20000) { handle(sim.step(), true); n++; }
+      if (n === 20000) vclock = sim.clock;
+      guard();
+      domDirty = true;
+    }
+    draw(ts);
+    if (domDirty && ts - lastDom > 125) { renderDom(); lastDom = ts; }
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- Arranque ---------- */
+  speed = +$('speed').value || 0.1;
+  { const v = Math.floor(+$('seed').value); if (v >= 0 && v <= 4294967295) seed = v; }
+  readColors(); layout();
+  reset(36);            // la página abre con una corrida ya avanzada; Reiniciar vuelve a t = 0
+  renderTabs(); renderForm(); renderDom();
+  new ResizeObserver(() => { layout(); drawPdf(); }).observe(cv.parentElement);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => drawPdf());
+  requestAnimationFrame(frame);
+})();
+</script>
